@@ -188,17 +188,13 @@ class NanoBridge:
         """Генерирует сетку и показывает модель"""
         try:
             volume_ids = self.get_volume_ids()
+            for id in volume_ids:
+                gmsh.model.setColor([(3, id)], 169, 169, 169, 255)
             gmsh.model.addPhysicalGroup(3, volume_ids, name="NanoBridge")
             oxide_ids = self.oxide_volumes
+            for id in oxide_ids:
+                gmsh.model.setColor([(3, id)], 240, 248, 255, 255)
             gmsh.model.addPhysicalGroup(3, oxide_ids, name="Oxide")
-            
-            print("NanoBridge model created successfully!")
-            print(f"Total length: {self.total_length}")
-            print(f"Grip width: {self.grip_width}")
-            print(f"End size: {self.end_size}")
-            print(f"Thickness: {self.thickness}")
-            print(f"Created {len(self.boxes)} Box objects")
-            print(f"Volume IDs: {self.get_volume_ids()}")
             
         except Exception as e:
             print(f"Error generating mesh: {e}")
