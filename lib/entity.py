@@ -6,8 +6,16 @@ class Point:
         self.x = x
         self.y = y
         self.z = z
-        self.id = gmsh.model.geo.addPoint(x, y, z)
+        self.id = -1
+        self.created = False
     
+    def Create(self):
+        if not self.created:
+            self.id = gmsh.model.geo.addPoint(self.x, self.y, self.z)
+        else:
+            print(f"Point {self.id} with coords {self.GetCoords()} has already created")
+        return self
+
     def GetCoords(self) -> Tuple[float, float, float]:
         return (self.x, self.y, self.z)
     
@@ -22,7 +30,7 @@ class Line:
         self.p1 = p1
         self.p2 = p2
         self.id = gmsh.model.geo.addLine(p1.GetId(), p2.GetId())
-    
+
     def reverse(self) -> 'Line':
         """Создает линию в обратном направлении"""
         return Line(self.p2, self.p1)

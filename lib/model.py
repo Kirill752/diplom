@@ -26,20 +26,25 @@ class Box:
         self.mesh_size = mesh_size
         self.volume = self._create_box()
     
+    def GetCenter(self) -> Point:
+        x, y, z = self.x, self.y, self.z
+        dx, dy, dz = self.dx, self.dy, self.dz
+        return Point(x + dx/2, y + dy/2, z + dz/2)
+
     def _create_box(self) -> Volume:
         """Создает параллелепипед и возвращает Volume"""
         x, y, z = self.x, self.y, self.z
         dx, dy, dz = self.dx, self.dy, self.dz
         
         # Создание точек для параллелепипеда
-        p1 = Point(x, y, z)
-        p2 = Point(x + dx, y, z)
-        p3 = Point(x + dx, y + dy, z)
-        p4 = Point(x, y + dy, z)
-        p5 = Point(x, y, z + dz)
-        p6 = Point(x + dx, y, z + dz)
-        p7 = Point(x + dx, y + dy, z + dz)
-        p8 = Point(x, y + dy, z + dz)
+        p1 = Point(x, y, z).Create()
+        p2 = Point(x + dx, y, z).Create()
+        p3 = Point(x + dx, y + dy, z).Create()
+        p4 = Point(x, y + dy, z).Create()
+        p5 = Point(x, y, z + dz).Create()
+        p6 = Point(x + dx, y, z + dz).Create()
+        p7 = Point(x + dx, y + dy, z + dz).Create()
+        p8 = Point(x, y + dy, z + dz).Create()
         
         # Создание линий
         # Нижняя грань
@@ -94,47 +99,79 @@ class Box:
 class NanoBridge:
     """Класс для создания наномостика в форме собачей кости на основе 3 объектов Box"""
     
-    def __init__(self, total_length: float = 12, grip_width: float = 2, 
-                 end_size: float = 3, thickness: float = 2, mesh_size: float = 0.5):
-        self.total_length = total_length
+    def __init__(self, grip_length = 10, grip_width = 5, grip_height = 5,
+                 end_length = 5, end_width = 10, mesh_size = 0.2):
+        self.grip_length = grip_length
         self.grip_width = grip_width
-        self.end_size = end_size
-        self.thickness = thickness
+        self.grip_height = grip_height
+        self.end_length = end_length
+        self.end_width = end_width
         self.mesh_size = mesh_size
         
         self.boxes = []
         self.volumes = []
+        self.oxide_volumes = []
     
     def create_nano_bridge_geometry(self):
-        """Создает геометрию наномостика в форме собачей кости"""
-        L, G, E, T = self.total_length, self.grip_width, self.end_size, self.thickness
-        
-        # Расчет позиций для трех Box объектов
-        
-        # Левый концевой бокс (утолщение)
+        gl, gw, gh, el, ew, ms = self.grip_length, self.grip_width, self.grip_height, self.end_length, self.end_width, self.mesh_size
+
         left_box = Box(
-            -L/2, -E/2, -T/2,  # origin
-            E, E, T,                   # dimensions (куб)
-            self.mesh_size
+            -gl/2 - el, -ew/2, 0,
+            el, ew, gh,
+            ms
         )
         
-        # Центральный бокс (узкая часть - ручка)
         center_box = Box(
-            -L/2 + E, -E/4, -T/2,  # origin
-            L - 2*E, E/2, T,                   # dimensions (узкий параллелепипед)
-            self.mesh_size
+            -gl/2, -gw/2, 0,
+            gl, gw, gh,
+            ms
         )
         
-        # Правый концевой бокс (утолщение)
         right_box = Box(
-            L/2 - E, -E/2, -T/2,  # origin
-            E, E, T,                      # dimensions (куб)
-            self.mesh_size
+            gl/2, -ew/2, 0,
+            el, ew, gh,
+            ms
         )
         
         self.boxes = [left_box, center_box, right_box]
         self.volumes = [box.GetVolume() for box in self.boxes]
     
+    def create_oxide(self):
+        (left, center, right) = self.get_boxes()
+        leftCenter = left.GetCenter().GetCoords()
+        centerCenter = center.GetCenter().GetCoords()
+        rightCenter = right.GetCenter().GetCoords()
+        volumes = []
+        ox1 = Envelope(
+            bridge_center_x=centerCenter[0], bridge_center_y=centerCenter[1], bridge_center_z=centerCenter[2],
+            grip_width=self.grip_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.grip_length,
+            mesh_size=0.2
+        )
+        ox1.create_c_shaped()  
+        volumes.append(ox1.GetVolumes())
+        ox2 = Envelope(
+            bridge_center_x=leftCenter[0], bridge_center_y=leftCenter[1], bridge_center_z=leftCenter[2],
+            grip_width=self.end_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
+            mesh_size=0.2
+        )
+        ox2.create_c_shaped()  
+        volumes.append(ox2.GetVolumes())
+        ox3 = Envelope(
+            bridge_center_x=rightCenter[0], bridge_center_y=rightCenter[1], bridge_center_z=rightCenter[2],
+            grip_width=self.end_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
+            mesh_size=0.2
+        )
+        ox3.create_c_shaped()
+        volumes.append(ox3.GetVolumes())
+
+        for volume in volumes:
+            for box in volume:
+                self.oxide_volumes.append(box.GetId())
+        
+
     def get_volumes(self) -> List[Volume]:
         """Возвращает список объемов наномостика"""
         return self.volumes
@@ -150,25 +187,10 @@ class NanoBridge:
     def generate_and_show(self):
         """Генерирует сетку и показывает модель"""
         try:
-            # self.model.synchronize()
-            
-            # Настройка физических групп для удобства постобработки
             volume_ids = self.get_volume_ids()
             gmsh.model.addPhysicalGroup(3, volume_ids, name="NanoBridge")
-            
-            # Добавляем физические группы для отдельных частей
-            if len(self.boxes) >= 3:
-                gmsh.model.addPhysicalGroup(3, [self.boxes[0].GetId()], name="LeftEnd")
-                gmsh.model.addPhysicalGroup(3, [self.boxes[1].GetId()], name="Grip")
-                gmsh.model.addPhysicalGroup(3, [self.boxes[2].GetId()], name="RightEnd")
-            
-            # Генерация сетки
-            # self.model.generate_mesh(3)
-            
-            # Сохранение результатов в разных форматах
-            # self.model.save_mesh("nano_bridge.msh")
-            # self.model.save_mesh("nano_bridge.stl")  # Для 3D печати
-            # self.model.save_mesh("nano_bridge.vtk")  # Для анализа в ParaView
+            oxide_ids = self.oxide_volumes
+            gmsh.model.addPhysicalGroup(3, oxide_ids, name="Oxide")
             
             print("NanoBridge model created successfully!")
             print(f"Total length: {self.total_length}")
@@ -178,13 +200,8 @@ class NanoBridge:
             print(f"Created {len(self.boxes)} Box objects")
             print(f"Volume IDs: {self.get_volume_ids()}")
             
-            # Показ модели
-        #     self.model.show()
-            
         except Exception as e:
             print(f"Error generating mesh: {e}")
-        # finally:
-        #     self.model.finalize()
 
 
 class AdvancedNanoBridge(NanoBridge):
@@ -197,11 +214,8 @@ class AdvancedNanoBridge(NanoBridge):
         self.material_properties = material_properties or {}
     
     def create_nano_bridge_with_base(self, base_thickness: float = 0.5):
-        """Создает наномостик с подложкой"""
-        # Сначала создаем основную структуру
         self.create_nano_bridge_geometry()
-        
-        # Добавляем подложку
+
         base_box = Box(
             Point(-self.total_length/2 - 1, -self.end_size/2 - 1, -self.thickness/2 - base_thickness),
             self.total_length + 2,
@@ -265,20 +279,16 @@ class Envelope:
         self.envelope_thickness = envelope_thickness
         self.mesh_size = mesh_size
         
-        self.electrode_volume = None
+        self.volumes = []
         
-    
+    def GetVolumes(self):
+        return self.volumes
+
     def create_c_shaped(self):
-        """Создает C-образный электрод, огибающий наномостик с трех сторон (с разрезом)"""
-        # Размеры внутренней полости (где будет наномостик)
         width = self.grip_width + 2 * self.envelope_gap + 2 * self.envelope_thickness
         height = self.grip_height + self.envelope_gap
-        
-        # Создаем электрод как набор из трех частей, образующих букву C
-        parts = []
-        
-        # Левая часть (охватывает слева)
-        parts.append(Box(
+
+        self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
             self.bridge_center_y - width/2,
             self.bridge_center_z - height/2,
@@ -286,9 +296,8 @@ class Envelope:
             self.envelope_thickness,
             height + self.envelope_thickness
         ))
-        
-        # Верхняя часть (охватывает сверху)
-        parts.append(Box(
+
+        self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
             self.bridge_center_y - self.grip_width/2,
             self.bridge_center_z + height/2,
@@ -296,13 +305,12 @@ class Envelope:
             self.grip_width,
             self.envelope_thickness
         ))
-        
-        # Нижняя часть (охватывает снизу)
-        parts.append(Box(
+
+        self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
-            self.bridge_center_y + 0.75,
+            self.bridge_center_y + width/2,
             self.bridge_center_z - height/2,
             self.envelope_length,
-            self.envelope_thickness,
+            -self.envelope_thickness,
             height + self.envelope_thickness
         ))
