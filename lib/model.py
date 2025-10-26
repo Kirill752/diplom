@@ -90,7 +90,7 @@ class Box:
     
     def GetOrigin(self) -> Point:
         """Возвращает начальную точку"""
-        return self.origin
+        return Point(self.x, self.y, self.z)
     
     def __repr__(self):
         return f"Box(origin={self.origin}, dx={self.dx}, dy={self.dy}, dz={self.dz}, id={self.GetId()})"
@@ -146,7 +146,7 @@ class NanoBridge:
             bridge_center_x=centerCenter[0], bridge_center_y=centerCenter[1], bridge_center_z=centerCenter[2],
             grip_width=self.grip_width, grip_height=self.grip_height,
             envelope_gap=0, envelope_thickness=0.3, envelope_length=self.grip_length,
-            mesh_size=0.2
+            mesh_size=0.4
         )
         ox1.create_c_shaped()  
         volumes.append(ox1.GetVolumes())
@@ -154,7 +154,7 @@ class NanoBridge:
             bridge_center_x=leftCenter[0], bridge_center_y=leftCenter[1], bridge_center_z=leftCenter[2],
             grip_width=self.end_width, grip_height=self.grip_height,
             envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
-            mesh_size=0.2
+            mesh_size=0.4
         )
         ox2.create_c_shaped()  
         volumes.append(ox2.GetVolumes())
@@ -162,7 +162,7 @@ class NanoBridge:
             bridge_center_x=rightCenter[0], bridge_center_y=rightCenter[1], bridge_center_z=rightCenter[2],
             grip_width=self.end_width, grip_height=self.grip_height,
             envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
-            mesh_size=0.2
+            mesh_size=0.4
         )
         ox3.create_c_shaped()
         volumes.append(ox3.GetVolumes())
@@ -290,7 +290,8 @@ class Envelope:
             self.bridge_center_z - height/2,
             self.envelope_length,
             self.envelope_thickness,
-            height + self.envelope_thickness
+            height + self.envelope_thickness,
+            self.mesh_size
         ))
 
         self.volumes.append(Box(
@@ -299,7 +300,8 @@ class Envelope:
             self.bridge_center_z + height/2,
             self.envelope_length,
             self.grip_width,
-            self.envelope_thickness
+            self.envelope_thickness,
+            self.mesh_size
         ))
 
         self.volumes.append(Box(
@@ -308,5 +310,6 @@ class Envelope:
             self.bridge_center_z - height/2,
             self.envelope_length,
             -self.envelope_thickness,
-            height + self.envelope_thickness
+            height + self.envelope_thickness,
+            self.mesh_size
         ))
