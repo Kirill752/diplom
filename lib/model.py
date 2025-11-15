@@ -36,45 +36,8 @@ class Box:
         x, y, z = self.x, self.y, self.z
         dx, dy, dz = self.dx, self.dy, self.dz
         
-        # Создание точек для параллелепипеда
-        p1 = Point(x, y, z).Create()
-        p2 = Point(x + dx, y, z).Create()
-        p3 = Point(x + dx, y + dy, z).Create()
-        p4 = Point(x, y + dy, z).Create()
-        p5 = Point(x, y, z + dz).Create()
-        p6 = Point(x + dx, y, z + dz).Create()
-        p7 = Point(x + dx, y + dy, z + dz).Create()
-        p8 = Point(x, y + dy, z + dz).Create()
-        
-        # Создание линий
-        # Нижняя грань
-        l1 = Line(p1, p2)
-        l2 = Line(p2, p3)
-        l3 = Line(p3, p4)
-        l4 = Line(p4, p1)
-        
-        # # Верхняя грань
-        l5 = Line(p5, p6)
-        l6 = Line(p6, p7)
-        l7 = Line(p7, p8)
-        l8 = Line(p8, p5)
-        
-        # Вертикальные линии
-        l9 = Line(p1, p5)
-        l10 = Line(p2, p6)
-        l11 = Line(p3, p7)
-        l12 = Line(p8, p4)
-        
-        # Создание поверхностей
-        bottom = Surface([l1, l2, l3, l4], self.mesh_size)  # нижняя
-        top = Surface([l5, l6, l7, l8], self.mesh_size)     # верхняя
-        front = Surface([l1, l10, l5, l9], self.mesh_size)  # передняя
-        back = Surface([l11, l7, l12, l3], self.mesh_size)  # задняя
-        left = Surface([l4, l9, l8, l12], self.mesh_size)   # левая
-        right = Surface([l2, l11, l6, l10], self.mesh_size) # правая
-        
         # Создание объема
-        return Volume([bottom, top, front, back, left, right], self.mesh_size)
+        return Volume((x, y, z, dx, dy, dz))
     
     def GetVolume(self) -> Volume:
         """Возвращает созданный объем"""
@@ -184,20 +147,6 @@ class NanoBridge:
         """Возвращает список ID объемов"""
         return [volume.GetId() for volume in self.volumes]
     
-    def generate_and_show(self):
-        """Генерирует сетку и показывает модель"""
-        try:
-            volume_ids = self.get_volume_ids()
-            for id in volume_ids:
-                gmsh.model.setColor([(3, id)], 169, 169, 169, 255)
-            gmsh.model.addPhysicalGroup(3, volume_ids, name="NanoBridge")
-            oxide_ids = self.oxide_volumes
-            for id in oxide_ids:
-                gmsh.model.setColor([(3, id)], 240, 248, 255, 255)
-            gmsh.model.addPhysicalGroup(3, oxide_ids, name="Oxide")
-            
-        except Exception as e:
-            print(f"Error generating mesh: {e}")
 
 
 class AdvancedNanoBridge(NanoBridge):

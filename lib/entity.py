@@ -11,7 +11,7 @@ class Point:
     
     def Create(self):
         if not self.created:
-            self.id = gmsh.model.geo.addPoint(self.x, self.y, self.z)
+            self.id = gmsh.model.occ.addPoint(self.x, self.y, self.z)
         else:
             print(f"Point {self.id} with coords {self.GetCoords()} has already created")
         return self
@@ -29,7 +29,7 @@ class Line:
     def __init__(self, p1: Point, p2: Point):
         self.p1 = p1
         self.p2 = p2
-        self.id = gmsh.model.geo.addLine(p1.GetId(), p2.GetId())
+        self.id = gmsh.model.occ.addLine(p1.GetId(), p2.GetId())
 
     def reverse(self) -> 'Line':
         """Создает линию в обратном направлении"""
@@ -70,20 +70,20 @@ class Surface:
         
         # Автоматически стыкуем линии перед созданием curve loop
         connected_lines = self._connect_lines(lines)
-        curve_loop_id = gmsh.model.geo.addCurveLoop([l.GetId() for l in connected_lines])
-        self.id = gmsh.model.geo.addPlaneSurface([curve_loop_id])
+        curve_loop_id = gmsh.model.occ.addCurveLoop([l.GetId() for l in connected_lines])
+        self.id = gmsh.model.occ.addPlaneSurface([curve_loop_id])
         
         # Автоматическая настройка сетки для четырехугольников
         if len(connected_lines) == 4:
             try:
-                gmsh.model.geo.mesh.setTransfiniteSurface(self.id)
-                gmsh.model.geo.mesh.setRecombine(2, self.id)
+                gmsh.model.occ.mesh.setTransfiniteSurface(self.id)
+                gmsh.model.occ.mesh.setRecombine(2, self.id)
             except Exception as e:
                 print(f"Warning: Could not set transfinite surface {self.id}: {e}")
         
         # Установка размера сетки если указан
         if mesh_size is not None:
-            gmsh.model.geo.mesh.setSize([(0, p.GetId()) for line in connected_lines for p in line.GetPoints()], mesh_size)
+            gmsh.model.occ.mesh.setSize([(0, p.GetId()) for line in connected_lines for p in line.GetPoints()], mesh_size)
     
     def _connect_lines(self, lines: List[Line]) -> List[Line]:
         """Автоматически стыкует линии в правильном порядке, переворачивая при необходимости"""
@@ -161,7 +161,7 @@ class Surface:
     def _create_curve_loop_safe(self, lines: List[Line]) -> int:
         """Безопасное создание curve loop с обработкой ошибок"""
         try:
-            return gmsh.model.geo.addCurveLoop([l.GetId() for l in lines])
+            return gmsh.model.occ.addCurveLoop([l.GetId() for l in lines])
         except Exception as e:
             print(f"Error creating curve loop: {e}")
             print("Lines order:", [l.GetId() for l in lines])
@@ -188,18 +188,18 @@ class Surface:
         """Создает простую поверхность как запасной вариант"""
         print("Creating fallback surface...")
         # Создаем простой квадрат 1x1
-        p1 = gmsh.model.geo.addPoint(0, 0, 0)
-        p2 = gmsh.model.geo.addPoint(1, 0, 0)
-        p3 = gmsh.model.geo.addPoint(1, 1, 0)
-        p4 = gmsh.model.geo.addPoint(0, 1, 0)
+        p1 = gmsh.model.occ.addPoint(0, 0, 0)
+        p2 = gmsh.model.occ.addPoint(1, 0, 0)
+        p3 = gmsh.model.occ.addPoint(1, 1, 0)
+        p4 = gmsh.model.occ.addPoint(0, 1, 0)
         
-        l1 = gmsh.model.geo.addLine(p1, p2)
-        l2 = gmsh.model.geo.addLine(p2, p3)
-        l3 = gmsh.model.geo.addLine(p3, p4)
-        l4 = gmsh.model.geo.addLine(p4, p1)
+        l1 = gmsh.model.occ.addLine(p1, p2)
+        l2 = gmsh.model.occ.addLine(p2, p3)
+        l3 = gmsh.model.occ.addLine(p3, p4)
+        l4 = gmsh.model.occ.addLine(p4, p1)
         
-        curve_loop = gmsh.model.geo.addCurveLoop([l1, l2, l3, l4])
-        return gmsh.model.geo.addPlaneSurface([curve_loop])
+        curve_loop = gmsh.model.occ.addCurveLoop([l1, l2, l3, l4])
+        return gmsh.model.occ.addPlaneSurface([curve_loop])
     
     def GetLines(self) -> List[Line]:
         return self.lines
@@ -211,17 +211,22 @@ class Surface:
         return f"Surface(lines={len(self.lines)}, id={self.id})"
 
 class Volume:
-    def __init__(self, surfaces: List[Surface], mesh_size: float = None):
-        self.surfaces = surfaces
-        surface_loop_id = gmsh.model.geo.addSurfaceLoop([s.GetId() for s in surfaces])
-        self.id = gmsh.model.geo.addVolume([surface_loop_id])
+    def __init__(self, id = None):
+        self.mesh_size = None
+        self.id = id
+
+    @classmethod
+    def from_surfaces(self, surfaces: List[Surface], mesh_size: float = None):
+        instance = self()
+        surface_loop_id = gmsh.model.occ.addSurfaceLoop([s.GetId() for s in surfaces])
+        self.id = gmsh.model.occ.addVolume([surface_loop_id])
         
-        try:
-            if len(surfaces) == 6:
-                gmsh.model.geo.mesh.setTransfiniteVolume(self.id)
-                gmsh.model.geo.mesh.setRecombine(3, self.id)
-        except Exception as e:
-            print(f"Warning: Could not set transfinite volume {self.id}: {e}")
+        # try:
+        #     if len(surfaces) == 6:
+        #         gmsh.model.occ.mesh.setTransfiniteVolume(self.id)
+        #         gmsh.model.occ.mesh.setRecombine(3, self.id)
+        # except Exception as e:
+        #     print(f"Warning: Could not set transfinite volume {self.id}: {e}")
 
         if mesh_size is not None:
             all_points = []
@@ -229,13 +234,12 @@ class Volume:
                 for line in surface.GetLines():
                     all_points.extend(line.GetPoints())
             unique_points = list(set(all_points))
-            gmsh.model.geo.mesh.setSize([(0, p.GetId()) for p in unique_points], mesh_size)
-    
-    def GetSurfaces(self) -> List[Surface]:
-        return self.surfaces
+            gmsh.model.occ.mesh.setSize([(0, p.GetId()) for p in unique_points], mesh_size)
+
+        return instance
     
     def GetId(self) -> int:
         return self.id
     
     def __repr__(self):
-        return f"Volume(surfaces={len(self.surfaces)}, id={self.id})"
+        return f"Volume(id={self.id})"
