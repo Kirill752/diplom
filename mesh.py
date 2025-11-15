@@ -1,62 +1,3 @@
-# import gmsh
-# import sys
-# from lib.model import  NanoBridge, Envelope, Box
-# from typing import List
-
-
-# gmsh.initialize()
-# gmsh.model.add("structured_block_specimen")
-
-# b1 = NanoBridge(mesh_size=1)
-# b1.create_nano_bridge_geometry()
-# b1.create_oxide()
-
-# (_, c, _) = b1.get_boxes()
-
-# center = c.GetCenter()
-
-# gate = Envelope(
-#     bridge_center_x=center.x, bridge_center_y=center.y, bridge_center_z=center.z,
-#     grip_width=5 + 2 * 0.3, grip_height=5+0.3,
-#     envelope_gap=0, envelope_thickness=2, envelope_length=2,
-#     mesh_size=0.6
-# )
-# gate.create_c_shaped()
-
-# mainPart = List[Box]
-# mainPart = gate.GetVolumes()
-# leftHand = Box(mainPart[2].GetOrigin().x, mainPart[2].GetOrigin().y, mainPart[2].GetOrigin().z, mainPart[2].GetDimensions()[0] , -2 * mainPart[2].GetDimensions()[1], 1, 0.6)
-# rightHand = Box(mainPart[0].GetOrigin().x, mainPart[0].GetOrigin().y, mainPart[0].GetOrigin().z, mainPart[2].GetDimensions()[0] , -2 * mainPart[0].GetDimensions()[1], 1, 0.6)
-
-# # rightHand = Box(0, 0, 0, 1 , 2, 1, 0.6)
-
-# gmsh.model.occ.synchronize()
-# # gmsh.model.occ.synchronize()
-
-
-# # b1.generate_and_show()
-# # gate_volumes = []
-# # gate_volumes.append(leftHand.GetVolume().GetId())
-# # gmsh.model.setColor([(3, leftHand.GetVolume().GetId())], 173, 216, 230, 255)
-# # gate_volumes.append(rightHand.GetVolume().GetId())
-# # gmsh.model.setColor([(3, rightHand.GetVolume().GetId())], 173, 216, 230, 255)
-# # for v in gate.GetVolumes():
-# #     gmsh.model.setColor([(3, v.GetId())], 173, 216, 230, 255)
-# #     gate_volumes.append(v.GetId())
-
-# # gmsh.model.add_physical_group(3, gate_volumes, -1, "Gate")
-# gmsh.model.mesh.setTransfiniteAutomatic()
-# # gmsh.model.occ.removeAllDuplicates()
-# gmsh.model.mesh.generate(3)
-
-# output_filename = "structured_blocks.msh"
-# gmsh.write(output_filename)
-# print(f"Модель сохранена в файл '{output_filename}'")
-
-# if '-nopopup' not in sys.argv:
-#     gmsh.fltk.run()
-
-# gmsh.finalize()
 import numpy as np
 import pyvista as pv
 from typing import List, Tuple, Dict
@@ -941,7 +882,373 @@ class NanoSystemVisualizer:
         plotter.add_title("Полная система: Наномостик + Подложка + Воздух + Электрод")
         plotter.show()
 
-# Основная демонстрация
+import numpy as np
+import pyvista as pv
+from typing import List, Tuple, Dict
+import time
+import pickle
+import os
+
+# [Весь предыдущий код классов Point, Box, Envelope, NanoBridge, Substrate, 
+# AirEnvironment, GateElectrode, CompleteNanoSystem остается без изменений]
+
+class ElectricFieldSolver:
+    """Класс для решения уравнения Лапласа и расчета электрического поля"""
+    
+    def __init__(self, nano_system: CompleteNanoSystem, grid_resolution=50):
+        self.nano_system = nano_system
+        self.grid_resolution = grid_resolution
+        self.potential = None
+        self.electric_field = None
+        self.grid = None
+        self.mask = None
+        # Добавляем относительные диэлектрические проницаемости
+        self.dielectric_constants = {
+            'air': 1.0,
+            'oxide': 3.9,  # SiO2
+            'nano_bridge': 11.7,  # Кремний
+            'substrate': 11.7,  # Кремниевая подложка
+            'gate': 1e10  # Металл (очень большое значение)
+        }
+        
+    def save_results(self, filename="electric_field_results.pkl"):
+        """Сохраняет результаты расчета в файл"""
+        if self.potential is None:
+            print("Нет данных для сохранения! Сначала выполните расчет.")
+            return
+            
+        data_to_save = {
+            'potential': self.potential,
+            'electric_field': self.electric_field,
+            'grid': self.grid,
+            'mask': self.mask,
+            'dielectric_constants': self.dielectric_constants,
+            'grid_resolution': self.grid_resolution,
+            'nano_bounds': self.nano_system.nano_bridge.get_total_bounds(),
+            'timestamp': time.time()
+        }
+        
+        with open(filename, 'wb') as f:
+            pickle.dump(data_to_save, f)
+        
+        print(f"Результаты сохранены в файл: {filename}")
+        print(f"Размер массива потенциала: {self.potential.shape}")
+        print(f"Размер сетки: {self.grid_resolution}^3 = {self.grid_resolution**3} точек")
+        
+    def load_results(self, filename="electric_field_results.pkl"):
+        """Загружает результаты расчета из файла"""
+        try:
+            with open(filename, 'rb') as f:
+                data = pickle.load(f)
+            
+            self.potential = data['potential']
+            self.electric_field = data['electric_field']
+            self.grid = data['grid']
+            self.mask = data['mask']
+            self.dielectric_constants = data.get('dielectric_constants', self.dielectric_constants)
+            self.grid_resolution = data.get('grid_resolution', self.grid_resolution)
+            
+            print(f"Результаты загружены из файла: {filename}")
+            print(f"Размер массива потенциала: {self.potential.shape}")
+            print(f"Дата расчета: {time.ctime(data['timestamp'])}")
+            
+            return True
+            
+        except FileNotFoundError:
+            print(f"Файл {filename} не найден!")
+            return False
+        except Exception as e:
+            print(f"Ошибка при загрузке файла: {e}")
+            return False
+
+    def create_computational_grid(self):
+        """Создает вычислительную сетку для решения уравнения Лапласа"""
+        air_box = self.nano_system.air_environment.box
+        air_bounds = air_box.GetBounds()
+        
+        # Создаем регулярную сетку
+        x = np.linspace(air_bounds[0], air_bounds[1], self.grid_resolution)
+        y = np.linspace(air_bounds[2], air_bounds[3], self.grid_resolution)
+        z = np.linspace(air_bounds[4], air_bounds[5], self.grid_resolution)
+        
+        self.grid = np.meshgrid(x, y, z, indexing='ij')
+        return self.grid
+    
+    def get_dielectric_constant_at_point(self, point):
+        """Возвращает диэлектрическую проницаемость в точке"""
+        # Проверяем материалы в порядке приоритета (металлы -> диэлектрики -> воздух)
+        if self.is_point_in_material(point, 'gate'):
+            return self.dielectric_constants['gate']  # Металл
+        elif self.is_point_in_material(point, 'substrate'):
+            return self.dielectric_constants['substrate']  # Подложка (проводящая)
+        elif self.is_point_in_material(point, 'nano_bridge'):
+            return self.dielectric_constants['nano_bridge']  # Наномостик (полупроводник)
+        elif self.is_point_in_material(point, 'oxide'):
+            return self.dielectric_constants['oxide']  # Оксид
+        else:
+            return self.dielectric_constants['air']  # Воздух
+
+    def set_dielectric_constants(self, new_constants: Dict):
+        """Устанавливает новые значения диэлектрических проницаемостей"""
+        for material, value in new_constants.items():
+            if material in self.dielectric_constants:
+                self.dielectric_constants[material] = value
+                print(f"Диэлектрическая проницаемость {material} установлена в {value}")
+    
+    def create_boundary_mask(self, gate_potential=10.0):
+        """Создает маску граничных условий - ТОЛЬКО для проводников"""
+        X, Y, Z = self.grid
+        self.mask = np.zeros(X.shape, dtype=bool)
+        boundary_values = np.zeros(X.shape)
+        
+        print("Создание маски граничных условий...")
+        
+        # Счетчики для отладки
+        gate_points = 0
+        ground_points = 0
+        
+        # ТОЛЬКО проводящие материалы имеют фиксированный потенциал
+        # Подложка - земля (0V) - проводник
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                for k in range(X.shape[2]):
+                    point = (X[i,j,k], Y[i,j,k], Z[i,j,k])
+                    
+                    # Подложка - земля (0V) - ПРОВОДНИК
+                    if self.is_point_in_material(point, 'substrate'):
+                        self.mask[i,j,k] = True
+                        boundary_values[i,j,k] = 0.0
+                        ground_points += 1
+        
+        # Электрод - заданный потенциал (10V) - ПРОВОДНИК
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                for k in range(X.shape[2]):
+                    point = (X[i,j,k], Y[i,j,k], Z[i,j,k])
+                    
+                    # Электрод - заданный потенциал - ПРОВОДНИК
+                    if self.is_point_in_material(point, 'gate'):
+                        self.mask[i,j,k] = True
+                        boundary_values[i,j,k] = gate_potential
+                        gate_points += 1
+        
+        print(f"Точек на электроде (проводник): {gate_points:,}")
+        print(f"Точек на земле (проводник): {ground_points:,}")
+        print("Наномостик и оксид - ДИЭЛЕКТРИКИ (без фиксированного потенциала)")
+        
+        # Проверяем, что электрод имеет правильный потенциал
+        gate_indices = np.where(self.mask & (boundary_values == gate_potential))
+        if len(gate_indices[0]) > 0:
+            print(f"Потенциал электрода установлен правильно: {gate_potential}V")
+        else:
+            print("ВНИМАНИЕ: Не найдено точек с потенциалом электрода!")
+            
+        return boundary_values
+    
+    def is_point_in_material(self, point, material_type):
+        """Проверяет, находится ли точка внутри указанного материала"""
+        x, y, z = point
+        
+        components = self.nano_system.all_components
+        if material_type in components:
+            for box in components[material_type]:
+                bounds = box.GetBounds()
+                # Используем более точную проверку с учетом знаков размеров
+                x_min = min(bounds[0], bounds[1])
+                x_max = max(bounds[0], bounds[1])
+                y_min = min(bounds[2], bounds[3])
+                y_max = max(bounds[2], bounds[3])
+                z_min = min(bounds[4], bounds[5])
+                z_max = max(bounds[4], bounds[5])
+                
+                if (x_min <= x <= x_max and 
+                    y_min <= y <= y_max and 
+                    z_min <= z <= z_max):
+                    return True
+        return False
+    
+    def solve_laplace_sor(self, gate_potential=10.0, omega=1.8, max_iter=1000, tolerance=5e-1):
+        """Решает уравнение Лапласа с использованием SOR метода с учетом диэлектриков"""
+        print("Создание вычислительной сетки...")
+        self.create_computational_grid()
+        X, Y, Z = self.grid
+        
+        print(f"Размер сетки: {X.shape}")
+        
+        # Создаем маску граничных условий (только для проводников)
+        boundary_values = self.create_boundary_mask(gate_potential)
+        
+        # Инициализация потенциала
+        self.potential = boundary_values.copy()
+        
+        print("Решение уравнения Лапласа методом SOR с учетом диэлектриков...")
+        start_time = time.time()
+        
+        # SOR метод с учетом диэлектриков
+        for iteration in range(max_iter):
+            max_change = 0.0
+            
+            # Обновление потенциала во внутренних точках
+            for i in range(1, X.shape[0]-1):
+                for j in range(1, X.shape[1]-1):
+                    for k in range(1, X.shape[2]-1):
+                        # Пропускаем точки с фиксированными граничными условиями (проводники)
+                        if self.mask[i,j,k]:
+                            continue
+                            
+                        # Получаем диэлектрические проницаемости в соседних точках
+                        eps_center = self.get_dielectric_constant_at_point((X[i,j,k], Y[i,j,k], Z[i,j,k]))
+                        eps_x_prev = self.get_dielectric_constant_at_point((X[i-1,j,k], Y[i-1,j,k], Z[i-1,j,k]))
+                        eps_x_next = self.get_dielectric_constant_at_point((X[i+1,j,k], Y[i+1,j,k], Z[i+1,j,k]))
+                        eps_y_prev = self.get_dielectric_constant_at_point((X[i,j-1,k], Y[i,j-1,k], Z[i,j-1,k]))
+                        eps_y_next = self.get_dielectric_constant_at_point((X[i,j+1,k], Y[i,j+1,k], Z[i,j+1,k]))
+                        eps_z_prev = self.get_dielectric_constant_at_point((X[i,j,k-1], Y[i,j,k-1], Z[i,j,k-1]))
+                        eps_z_next = self.get_dielectric_constant_at_point((X[i,j,k+1], Y[i,j,k+1], Z[i,j,k+1]))
+                        
+                        # Усредненные диэлектрические проницаемости на гранях
+                        eps_x_avg_prev = (eps_center + eps_x_prev) / 2
+                        eps_x_avg_next = (eps_center + eps_x_next) / 2
+                        eps_y_avg_prev = (eps_center + eps_y_prev) / 2
+                        eps_y_avg_next = (eps_center + eps_y_next) / 2
+                        eps_z_avg_prev = (eps_center + eps_z_prev) / 2
+                        eps_z_avg_next = (eps_center + eps_z_next) / 2
+                        
+                        # Вычисляем новое значение с учетом диэлектриков
+                        numerator = (eps_x_avg_prev * self.potential[i-1,j,k] + 
+                                   eps_x_avg_next * self.potential[i+1,j,k] +
+                                   eps_y_avg_prev * self.potential[i,j-1,k] + 
+                                   eps_y_avg_next * self.potential[i,j+1,k] +
+                                   eps_z_avg_prev * self.potential[i,j,k-1] + 
+                                   eps_z_avg_next * self.potential[i,j,k+1])
+                        
+                        denominator = (eps_x_avg_prev + eps_x_avg_next +
+                                     eps_y_avg_prev + eps_y_avg_next +
+                                     eps_z_avg_prev + eps_z_avg_next)
+                        
+                        if denominator > 0:
+                            new_value = numerator / denominator
+                            
+                            # Применяем релаксацию (SOR)
+                            change = omega * (new_value - self.potential[i,j,k])
+                            self.potential[i,j,k] += change
+                            
+                            # Отслеживаем максимальное изменение
+                            max_change = max(max_change, abs(change))
+            
+            # Проверка сходимости каждые 50 итераций
+            if iteration % 10 == 0:
+                print(f"Итерация {iteration}, максимальное изменение: {max_change:.2e}")
+            
+            if max_change < tolerance:
+                end_time = time.time()
+                print(f"Сходимость достигнута на итерации {iteration+1}")
+                print(f"Время решения: {end_time - start_time:.2f} секунд")
+                break
+        
+        if iteration == max_iter - 1:
+            end_time = time.time()
+            print(f"Достигнуто максимальное число итераций {max_iter}")
+            print(f"Время решения: {end_time - start_time:.2f} секунд")
+        
+        print("Расчет электрического поля...")
+        # Расчет электрического поля E = -∇φ
+        self.calculate_electric_field()
+        
+        # Автоматически сохраняем результаты после расчета
+        self.save_results()
+        
+        return self.potential
+    
+    def calculate_electric_field(self):
+        """Вычисляет электрическое поле как градиент потенциала"""
+        X, Y, Z = self.grid
+        
+        # Вычисление градиента
+        Ex = -np.gradient(self.potential, axis=0)
+        Ey = -np.gradient(self.potential, axis=1)
+        Ez = -np.gradient(self.potential, axis=2)
+        
+        self.electric_field = (Ex, Ey, Ez)
+        return self.electric_field
+
+    def quick_visualize_from_file(self, filename="electric_field_results.pkl"):
+        """Быстрая визуализация из сохраненного файла"""
+        if not self.load_results(filename):
+            return
+        
+        print("Быстрая визуализация из файла...")
+        self.visualize_nanobridge_cross_sections()
+    
+    def visualize_nanobridge_cross_sections(self):
+        """Визуализация срезов распределения поля внутри наномостика"""
+        if self.potential is None:
+            print("Сначала необходимо решить уравнение Лапласа!")
+            return
+        
+        X, Y, Z = self.grid
+        
+        # Создаем PyVista структурированную сетку
+        grid = pv.StructuredGrid(X, Y, Z)
+        grid.point_data["potential"] = self.potential.ravel(order='F')
+        
+        # Вычисляем модуль электрического поля
+        Ex, Ey, Ez = self.electric_field
+        E_magnitude = np.sqrt(Ex**2 + Ey**2 + Ez**2)
+        grid.point_data["E_magnitude"] = E_magnitude.ravel(order='F')
+        
+        # Получаем границы наномостика для точных срезов
+        nano_bridge = self.nano_system.nano_bridge
+        center_box = nano_bridge.get_boxes()[1]  # Центральная часть
+        center_bounds = center_box.GetBounds()
+        
+        # Координаты для срезов
+        center_x = (center_bounds[0] + center_bounds[1]) / 2
+        center_y = (center_bounds[2] + center_bounds[3]) / 2  
+        center_z = (center_bounds[4] + center_bounds[5]) / 2
+        
+        # Создаем plotter с несколькими видами
+        plotter = pv.Plotter(shape=(2, 2))
+        
+        # 1. Срез по XZ плоскости через центр наномостика (Y = center_y)
+        plotter.subplot(0, 0)
+        slice_y = grid.slice(normal='y', origin=[0, center_y, 0])
+        plotter.add_mesh(slice_y, scalars="potential", cmap='coolwarm', 
+                        scalar_bar_args={'title': "Потенциал, V"})
+        plotter.add_title(f"Срез XZ (Y={center_y:.1f}) - Потенциал")
+        
+        # 2. Срез по XY плоскости через середину высоты наномостика (Z = center_z)
+        plotter.subplot(0, 1)
+        slice_z = grid.slice(normal='z', origin=[0, 0, center_z])
+        plotter.add_mesh(slice_z, scalars="potential", cmap='coolwarm',
+                        scalar_bar_args={'title': "Потенциал, V"})
+        plotter.add_title(f"Срез XY (Z={center_z:.1f}) - Потенциал")
+        
+        # 3. Срез по XZ плоскости - напряженность поля
+        plotter.subplot(1, 0)
+        plotter.add_mesh(slice_y, scalars="E_magnitude", cmap='hot',
+                        scalar_bar_args={'title': "|E|, V/м"})
+        plotter.add_title(f"Срез XZ (Y={center_y:.1f}) - Напряженность")
+        
+        # 4. Срез через наномостик с изоповерхностями
+        plotter.subplot(1, 1)
+        
+        # Создаем ограничивающую рамку вокруг наномостика
+        nano_bounds = nano_bridge.get_total_bounds()
+        clip_box = pv.Box(bounds=nano_bounds)
+        
+        # Вырезаем область наномостика
+        nano_region = grid.clip_box(clip_box, invert=False)
+        
+        if nano_region.n_points > 0:
+            # Добавляем изоповерхности внутри наномостика
+            contours = nano_region.contour([1, 3, 5, 7, 9])  # Изоповерхности от 1V до 9V
+            plotter.add_mesh(contours, cmap='viridis', opacity=0.7,
+                           scalar_bar_args={'title': "Потенциал, V"})
+            plotter.add_title("3D изоповерхности в наномостике")
+        
+        plotter.show()
+
+# Основная демонстрация с улучшенным управлением
 def main():
     print("Создание полной системы наномостика...")
     
@@ -963,49 +1270,32 @@ def main():
     print("\n2. Расчет электрического поля с учетом диэлектриков...")
     field_solver = ElectricFieldSolver(nano_system, grid_resolution=50)
     
-    print("\n3. Визуализация диэлектрических свойств:")
-    field_solver.visualize_dielectric_properties()
+    # Проверяем, есть ли сохраненные результаты
+    saved_file = "electric_field_results.pkl"
+    if os.path.exists(saved_file):
+        print(f"Найден сохраненный файл {saved_file}")
+        choice = input("Загрузить результаты из файла? (y/n): ")
+        if choice.lower() == 'y':
+            field_solver.quick_visualize_from_file(saved_file)
+            return
     
-    potential = field_solver.solve_laplace_sor(gate_potential=10.0, omega=1.8)
+    print("\n3. Выполнение нового расчета...")
     
-    print("\n4. Срезы распределения поля внутри наномостика:")
+    # Демонстрация изменения диэлектрических проницаемостей
+    print("\n4. Демонстрация влияния диэлектрических проницаемостей:")
+    
+    # Первый расчет с базовыми параметрами
+    print("Расчет с базовыми диэлектрическими проницаемостями:")
+    field_solver.solve_laplace_sor(gate_potential=10.0)
+    
+    # Второй расчет с измененными параметрами оксида
+    print("\nРасчет с увеличенной диэлектрической проницаемостью оксида (ε=25):")
+    field_solver.set_dielectric_constants({'oxide': 25.0})
+    field_solver.solve_laplace_sor(gate_potential=10.0)
+    field_solver.save_results("high_epsilon_oxide.pkl")
+    
+    print("\n5. Сравнение результатов:")
     field_solver.visualize_nanobridge_cross_sections()
-    
-    print("\n5. Полная визуализация системы с полем:")
-    field_solver.visualize_electric_field_with_geometry(visualizer)
-    
-    # Анализ результатов
-    print("\n6. Анализ результатов:")
-    max_potential = np.max(potential)
-    min_potential = np.min(potential)
-    print(f"Максимальный потенциал: {max_potential:.2f} V")
-    print(f"Минимальный потенциал: {min_potential:.2f} V")
-    
-    Ex, Ey, Ez = field_solver.electric_field
-    max_E = np.max(np.sqrt(Ex**2 + Ey**2 + Ez**2))
-    print(f"Максимальная напряженность поля: {max_E:.2f} V/м")
-    
-    # Анализ поля внутри наномостика
-    X, Y, Z = field_solver.grid
-    nano_potentials = []
-    for i in range(X.shape[0]):
-        for j in range(X.shape[1]):
-            for k in range(X.shape[2]):
-                if field_solver.is_point_in_material((X[i,j,k], Y[i,j,k], Z[i,j,k]), 'nano_bridge'):
-                    nano_potentials.append(field_solver.potential[i,j,k])
-    
-    if nano_potentials:
-        nano_avg = np.mean(nano_potentials)
-        nano_std = np.std(nano_potentials)
-        print(f"Потенциал в наномостике: среднее = {nano_avg:.2f} V, std = {nano_std:.2f} V")
-        print(f"Диапазон потенциала в наномостике: [{np.min(nano_potentials):.2f}, {np.max(nano_potentials):.2f}] V")
 
 if __name__ == "__main__":
     main()
-
-    # # Загружаем сетку из файла
-    # mesh = pv.read("my_nanotip_mesh.vtk")
-
-    # # Визуализируем загруженную сетку
-    # mesh.plot(style='wireframe', line_width=2, color='red', 
-    #       show_edges=True, title="Сетка загруженная из файла")
