@@ -1,8 +1,0 @@
-PhysicalGroup,Color
-NanoBridge,red
-Oxide,blue
-Electrode,green
-Substrate,orange
-Grip,purple
-LeftEnd,yellow
-RightEnd,cyan

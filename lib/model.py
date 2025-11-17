@@ -1,201 +1,36 @@
-import gmsh
 from typing import List, Tuple
-from lib.entity import Point, Line, Surface, Volume
+from lib.entity import Point, Volume
 
+import numpy as np
 
-class Box:
+class Box(Volume):
     """Класс для создания параллелепипеда"""
     
     def __init__(self, x: float, y: float, z: float, dx: float, dy: float, dz: float, mesh_size: float = None):
-        """
-        Создает параллелепипед
-        
-        Args:
-            origin: начальная точка (минимальные координаты)
-            dx: размер по X
-            dy: размер по Y  
-            dz: размер по Z
-            mesh_size: опциональный размер сетки
-        """
         self.x = x
         self.y = y
         self.z = z
         self.dx = dx
         self.dy = dy
         self.dz = dz
-        self.mesh_size = mesh_size
-        self.volume = self._create_box()
     
     def GetCenter(self) -> Point:
-        x, y, z = self.x, self.y, self.z
-        dx, dy, dz = self.dx, self.dy, self.dz
-        return Point(x + dx/2, y + dy/2, z + dz/2)
-
-    def _create_box(self) -> Volume:
-        """Создает параллелепипед и возвращает Volume"""
-        x, y, z = self.x, self.y, self.z
-        dx, dy, dz = self.dx, self.dy, self.dz
-        
-        # Создание объема
-        return Volume((x, y, z, dx, dy, dz))
-    
-    def GetVolume(self) -> Volume:
-        """Возвращает созданный объем"""
-        return self.volume
-    
-    def GetId(self) -> int:
-        """Возвращает ID объема"""
-        return self.volume.GetId()
-    
-    def GetDimensions(self) -> Tuple[float, float, float]:
-        """Возвращает размеры параллелепипеда"""
-        return (self.dx, self.dy, self.dz)
+        return Point(self.x + self.dx/2, self.y + self.dy/2, self.z + self.dz/2)
     
     def GetOrigin(self) -> Point:
-        """Возвращает начальную точку"""
         return Point(self.x, self.y, self.z)
     
+    def GetDimensions(self) -> Tuple[float, float, float]:
+        return (self.dx, self.dy, self.dz)
+
+    def GetCoords(self) -> Tuple[float, float, float, float, float, float]:
+        return (self.x, self.y, self.z, self.dx, self.dy, self.dz)
+    
+    def GetBounds(self) -> List[float]:
+        return [self.x, self.x + self.dx, self.y, self.y + self.dy, self.z, self.z + self.dz]
+    
     def __repr__(self):
-        return f"Box(origin={self.origin}, dx={self.dx}, dy={self.dy}, dz={self.dz}, id={self.GetId()})"
-        
-
-class NanoBridge:
-    """Класс для создания наномостика в форме собачей кости на основе 3 объектов Box"""
-    
-    def __init__(self, grip_length = 10, grip_width = 5, grip_height = 5,
-                 end_length = 5, end_width = 10, mesh_size = 0.2):
-        self.grip_length = grip_length
-        self.grip_width = grip_width
-        self.grip_height = grip_height
-        self.end_length = end_length
-        self.end_width = end_width
-        self.mesh_size = mesh_size
-        
-        self.boxes = []
-        self.volumes = []
-        self.oxide_volumes = []
-    
-    def create_nano_bridge_geometry(self):
-        gl, gw, gh, el, ew, ms = self.grip_length, self.grip_width, self.grip_height, self.end_length, self.end_width, self.mesh_size
-
-        left_box = Box(
-            -gl/2 - el, -ew/2, 0,
-            el, ew, gh,
-            ms
-        )
-        
-        center_box = Box(
-            -gl/2, -gw/2, 0,
-            gl, gw, gh,
-            ms
-        )
-        
-        right_box = Box(
-            gl/2, -ew/2, 0,
-            el, ew, gh,
-            ms
-        )
-        
-        self.boxes = [left_box, center_box, right_box]
-        self.volumes = [box.GetVolume() for box in self.boxes]
-    
-    def create_oxide(self):
-        (left, center, right) = self.get_boxes()
-        leftCenter = left.GetCenter().GetCoords()
-        centerCenter = center.GetCenter().GetCoords()
-        rightCenter = right.GetCenter().GetCoords()
-        volumes = []
-        ox1 = Envelope(
-            bridge_center_x=centerCenter[0], bridge_center_y=centerCenter[1], bridge_center_z=centerCenter[2],
-            grip_width=self.grip_width, grip_height=self.grip_height,
-            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.grip_length,
-            mesh_size=0.4
-        )
-        ox1.create_c_shaped()  
-        volumes.append(ox1.GetVolumes())
-        ox2 = Envelope(
-            bridge_center_x=leftCenter[0], bridge_center_y=leftCenter[1], bridge_center_z=leftCenter[2],
-            grip_width=self.end_width, grip_height=self.grip_height,
-            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
-            mesh_size=0.4
-        )
-        ox2.create_c_shaped()  
-        volumes.append(ox2.GetVolumes())
-        ox3 = Envelope(
-            bridge_center_x=rightCenter[0], bridge_center_y=rightCenter[1], bridge_center_z=rightCenter[2],
-            grip_width=self.end_width, grip_height=self.grip_height,
-            envelope_gap=0, envelope_thickness=0.3, envelope_length=self.end_length,
-            mesh_size=0.4
-        )
-        ox3.create_c_shaped()
-        volumes.append(ox3.GetVolumes())
-
-        for volume in volumes:
-            for box in volume:
-                self.oxide_volumes.append(box.GetId())
-        
-
-    def get_volumes(self) -> List[Volume]:
-        """Возвращает список объемов наномостика"""
-        return self.volumes
-    
-    def get_boxes(self) -> List[Box]:
-        """Возвращает список Box объектов"""
-        return self.boxes
-    
-    def get_volume_ids(self) -> List[int]:
-        """Возвращает список ID объемов"""
-        return [volume.GetId() for volume in self.volumes]
-    
-
-
-class AdvancedNanoBridge(NanoBridge):
-    """Расширенный класс наномостика с дополнительными функциями"""
-    
-    def __init__(self, total_length: float = 12, grip_width: float = 2, 
-                 end_size: float = 3, thickness: float = 2, mesh_size: float = 0.5,
-                 material_properties: dict = None):
-        super().__init__(total_length, grip_width, end_size, thickness, mesh_size)
-        self.material_properties = material_properties or {}
-    
-    def create_nano_bridge_with_base(self, base_thickness: float = 0.5):
-        self.create_nano_bridge_geometry()
-
-        base_box = Box(
-            Point(-self.total_length/2 - 1, -self.end_size/2 - 1, -self.thickness/2 - base_thickness),
-            self.total_length + 2,
-            self.end_size + 2,
-            base_thickness,
-            self.mesh_size
-        )
-        
-        self.boxes.append(base_box)
-        self.volumes.append(base_box.GetVolume())
-    
-    def set_material_properties(self, youngs_modulus: float, poissons_ratio: float, density: float):
-        """Устанавливает механические свойства материала"""
-        self.material_properties = {
-            'youngs_modulus': youngs_modulus,
-            'poissons_ratio': poissons_ratio,
-            'density': density
-        }
-    
-    def calculate_volume(self) -> float:
-        """Вычисляет общий объем наномостика"""
-        total_volume = 0.0
-        for box in self.boxes:
-            dx, dy, dz = box.GetDimensions()
-            total_volume += dx * dy * dz
-        return total_volume
-    
-    def calculate_mass(self) -> float:
-        """Вычисляет массу наномостика (требует установки density)"""
-        if 'density' not in self.material_properties:
-            print("Warning: Density not set. Please set material properties first.")
-            return 0.0
-        return self.calculate_volume() * self.material_properties['density']
-    
-
+        return f"Box(x={self.x}, y={self.y}, z={self.z}, dx={self.dx}, dy={self.dy}, dz={self.dz})"
 
 class Envelope:
     """Класс для создания огибающего электрода вокруг узкой части наномостика"""
@@ -230,35 +65,330 @@ class Envelope:
         return self.volumes
 
     def create_c_shaped(self):
-        width = self.grip_width + 2 * self.envelope_gap + 2 * self.envelope_thickness
-        height = self.grip_height + self.envelope_gap
+        # Убираем зазор - электрод плотно прилегает к наномостику
+        width = self.grip_width + 2 * self.envelope_thickness  # убираем envelope_gap
+        height = self.grip_height  # убираем envelope_gap
 
+        # Левая вертикальная часть
         self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
             self.bridge_center_y - width/2,
-            self.bridge_center_z - height/2,
+            self.bridge_center_z,
             self.envelope_length,
             self.envelope_thickness,
             height + self.envelope_thickness,
             self.mesh_size
         ))
 
+        # Верхняя горизонтальная часть
         self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
             self.bridge_center_y - self.grip_width/2,
-            self.bridge_center_z + height/2,
+            self.bridge_center_z + height,
             self.envelope_length,
             self.grip_width,
             self.envelope_thickness,
             self.mesh_size
         ))
 
+        # Правая вертикальная часть
         self.volumes.append(Box(
             self.bridge_center_x - self.envelope_length/2,
-            self.bridge_center_y + width/2,
-            self.bridge_center_z - height/2,
+            self.bridge_center_y + width/2 - self.envelope_thickness,
+            self.bridge_center_z,
             self.envelope_length,
-            -self.envelope_thickness,
+            self.envelope_thickness,
             height + self.envelope_thickness,
             self.mesh_size
         ))
+
+
+class NanoBridge:
+    """Класс для создания наномостика в форме собачей кости"""
+    
+    def __init__(self, grip_length=10, grip_width=5, grip_height=5,
+                 end_length=5, end_width=10, mesh_size=0.2):
+        self.grip_length = grip_length
+        self.grip_width = grip_width
+        self.grip_height = grip_height
+        self.end_length = end_length
+        self.end_width = end_width
+        self.mesh_size = mesh_size
+        
+        self.boxes = []
+        self.oxide_boxes = []
+    
+    def create_nano_bridge_geometry(self):
+        """Создает геометрию наномостика из трех Box"""
+        gl, gw, gh, el, ew, ms = self.grip_length, self.grip_width, self.grip_height, self.end_length, self.end_width, self.mesh_size
+
+        left_box = Box(
+            -gl/2 - el, -ew/2, 0,
+            el, ew, gh,
+            ms
+        )
+        
+        center_box = Box(
+            -gl/2, -gw/2, 0,
+            gl, gw, gh,
+            ms
+        )
+        
+        right_box = Box(
+            gl/2, -ew/2, 0,
+            el, ew, gh,
+            ms
+        )
+        
+        self.boxes = [left_box, center_box, right_box]
+        return self.boxes
+
+    def create_oxide(self):
+        (left, center, right) = self.get_boxes()
+        leftCenter = left.GetCenter().GetCoords()
+        centerCenter = center.GetCenter().GetCoords()
+        rightCenter = right.GetCenter().GetCoords()
+        
+        # Увеличим толщину оксида для лучшей визуализации
+        oxide_thickness = 1.0  # было 0.3
+        
+        ox1 = Envelope(
+            bridge_center_x=centerCenter[0], bridge_center_y=centerCenter[1], bridge_center_z=0,
+            grip_width=self.grip_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=oxide_thickness, 
+            envelope_length=self.grip_length,
+            mesh_size=0.4
+        )
+        ox1.create_c_shaped()  
+        
+        ox2 = Envelope(
+            bridge_center_x=leftCenter[0], bridge_center_y=leftCenter[1], bridge_center_z=0,
+            grip_width=self.end_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=oxide_thickness,
+            envelope_length=self.end_length,
+            mesh_size=0.4
+        )
+        ox2.create_c_shaped()  
+        
+        ox3 = Envelope(
+            bridge_center_x=rightCenter[0], bridge_center_y=rightCenter[1], bridge_center_z=0,
+            grip_width=self.end_width, grip_height=self.grip_height,
+            envelope_gap=0, envelope_thickness=oxide_thickness,
+            envelope_length=self.end_length,
+            mesh_size=0.4
+        )
+        ox3.create_c_shaped()
+
+        # Добавляем все оксидные боксы в один список
+        self.oxide_boxes = ox1.GetVolumes() + ox2.GetVolumes() + ox3.GetVolumes()
+        print(f"Создано оксидных боксов: {len(self.oxide_boxes)}")
+    
+    def get_boxes(self) -> List[Box]:
+        return self.boxes
+
+    def get_oxide_boxes(self) -> List[Box]:
+        return self.oxide_boxes
+    
+    def get_total_bounds(self) -> List[float]:
+        """Возвращает общие границы наномостика"""
+        all_boxes = self.boxes + self.oxide_boxes
+        all_bounds = [box.GetBounds() for box in all_boxes]
+        
+        bounds_array = np.array(all_bounds)
+        return [
+            bounds_array[:, 0].min(),  # x_min
+            bounds_array[:, 1].max(),  # x_max
+            bounds_array[:, 2].min(),  # y_min
+            bounds_array[:, 3].max(),  # y_max
+            bounds_array[:, 4].min(),  # z_min
+            bounds_array[:, 5].max()   # z_max
+        ]
+
+class Substrate:
+    """Класс для создания подложки"""
+    
+    def __init__(self, thickness=5, padding=10, mesh_size=1.0):
+        self.thickness = thickness
+        self.padding = padding
+        self.mesh_size = mesh_size
+        self.box = None
+    
+    def create_substrate(self, nano_bounds):
+        """Создает подложку на основе границ наномостика"""
+        x_min, x_max, y_min, y_max, z_min, z_max = nano_bounds
+        
+        # Подложка располагается под наномостиком
+        substrate_z = z_min - self.thickness
+        
+        # Подложка расширяется за пределы наномостика
+        substrate_x_min = x_min - self.padding
+        substrate_x_max = x_max + self.padding
+        substrate_y_min = y_min - self.padding
+        substrate_y_max = y_max + self.padding
+        
+        substrate_dx = substrate_x_max - substrate_x_min
+        substrate_dy = substrate_y_max - substrate_y_min
+        
+        self.box = Box(
+            substrate_x_min, substrate_y_min, substrate_z,
+            substrate_dx, substrate_dy, self.thickness,
+            self.mesh_size
+        )
+        
+        return self.box
+
+class AirEnvironment:
+    """Класс для создания окружающей среды (воздуха)"""
+    
+    def __init__(self, padding=15, height_above=20, height_below=10, mesh_size=1.5):
+        self.padding = padding
+        self.height_above = height_above
+        self.height_below = height_below
+        self.mesh_size = mesh_size
+        self.box = None
+    
+    def create_air_environment(self, nano_bounds):
+        """Создает окружающую среду на основе границ наномостика"""
+        x_min, x_max, y_min, y_max, z_min, z_max = nano_bounds
+        
+        # Окружающая среда охватывает все элементы
+        air_x_min = x_min - self.padding
+        air_x_max = x_max + self.padding
+        air_y_min = y_min - self.padding
+        air_y_max = y_max + self.padding
+        air_z_min = z_min - self.height_below
+        air_z_max = z_max + self.height_above
+        
+        air_dx = air_x_max - air_x_min
+        air_dy = air_y_max - air_y_min
+        air_dz = air_z_max - air_z_min
+        
+        self.box = Box(
+            air_x_min, air_y_min, air_z_min,
+            air_dx, air_dy, air_dz,
+            self.mesh_size
+        )
+        
+        return self.box
+
+class GateElectrode:
+    """Класс для создания затворного электрода"""
+    
+    def __init__(self, center_point: Point, width=15, height=8, length=5, thickness=2, mesh_size=0.6):
+        self.center = center_point
+        self.width = width
+        self.height = height
+        self.length = length
+        self.thickness = thickness
+        self.mesh_size = mesh_size
+        self.boxes = []
+    
+    def create_gate_electrode(self):
+        """Создает затворный электрод в форме буквы C"""
+        # Создаем оболочку для электрода БЕЗ зазора
+        gate = Envelope(
+            bridge_center_x=self.center.x,
+            bridge_center_y=self.center.y, 
+            bridge_center_z=0,
+            grip_width=self.width,
+            grip_height=self.height,
+            envelope_gap=0,  # НУЛЕВОЙ зазор - электрод плотно прилегает
+            envelope_thickness=self.thickness,
+            envelope_length=self.length,
+            mesh_size=self.mesh_size
+        )
+        
+        gate.create_c_shaped()
+        self.boxes = gate.GetVolumes()
+
+        mainPart = gate.GetVolumes()
+        
+        # Улучшаем дополнительные части электрода
+        leftHand = Box(
+            mainPart[0].GetOrigin().x, 
+            mainPart[0].GetOrigin().y, 
+            mainPart[0].GetOrigin().z,
+            mainPart[0].GetDimensions()[0], 
+            -self.thickness * 3, 
+            self.thickness * 2,
+            self.mesh_size
+        )
+        
+        rightHand = Box(
+            mainPart[2].GetOrigin().x, 
+            mainPart[2].GetOrigin().y, 
+            mainPart[2].GetOrigin().z,
+            mainPart[2].GetDimensions()[0], 
+            self.thickness * 3, 
+            self.thickness * 2,
+            self.mesh_size
+        )
+        
+        self.boxes.extend([leftHand, rightHand])
+        
+        print(f"Создано частей электрода: {len(self.boxes)}")
+        for i, box in enumerate(self.boxes):
+            print(f"  Часть {i}: {box.GetBounds()}")
+        
+        return self.boxes
+
+class CompleteNanoSystem:
+    """Класс для создания полной системы: наномостик + подложка + воздух + электрод"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.nano_bridge = None
+        self.substrate = None
+        self.air_environment = None
+        self.gate_electrode = None
+        self.all_components = []
+    
+    def create_complete_system(self):
+        """Создает полную систему"""
+
+        nb_config = self.config['nanobridge']
+        sub_config = self.config['substrate']
+        air_config = self.config['air_environment']
+        el_config = self.config['electrode']
+
+        self.nano_bridge = NanoBridge(
+            grip_length=nb_config['grip_length'], grip_width=nb_config['grip_width'], grip_height=nb_config['grip_height'],
+            end_length=nb_config['end_length'], end_width=nb_config['end_width'], mesh_size=nb_config['mesh_size']
+        )
+        self.nano_bridge.create_nano_bridge_geometry()
+        self.nano_bridge.create_oxide()
+        
+        nano_bounds = self.nano_bridge.get_total_bounds()
+        self.substrate = Substrate(thickness=sub_config['thickness'], padding=sub_config['padding'], mesh_size=sub_config['mesh_size'])
+        substrate_box = self.substrate.create_substrate(nano_bounds)
+        
+        all_bounds_so_far = nano_bounds + substrate_box.GetBounds()
+        bounds_array = np.array([all_bounds_so_far[:6], all_bounds_so_far[6:]])
+        total_bounds = [
+            bounds_array[:, 0].min(), bounds_array[:, 1].max(),
+            bounds_array[:, 2].min(), bounds_array[:, 3].max(), 
+            bounds_array[:, 4].min(), bounds_array[:, 5].max()
+        ]
+        
+        self.air_environment = AirEnvironment(padding=air_config['padding'], height_above=air_config['height_above'], 
+                                              height_below=air_config['height_below'], mesh_size=air_config['mesh_size'])
+        air_box = self.air_environment.create_air_environment(total_bounds)
+        
+        (_, center_box, _) = self.nano_bridge.get_boxes()
+        center_point = center_box.GetCenter()
+        
+        self.gate_electrode = GateElectrode(
+            center_point=center_point, width=el_config['width'], height=el_config['height'], 
+            length=el_config['length'], thickness=el_config['thickness'], mesh_size=el_config['mesh_size']
+        )
+        gate_boxes = self.gate_electrode.create_gate_electrode()
+        
+        self.all_components = {
+            'nano_bridge': self.nano_bridge.get_boxes(),
+            'oxide': self.nano_bridge.get_oxide_boxes(),
+            'substrate': [substrate_box],
+            'air': [air_box],
+            'gate': gate_boxes
+        }
+        
+        return self.all_components
