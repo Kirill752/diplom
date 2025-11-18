@@ -16,7 +16,7 @@ class NanoSystemVisualizer:
         
         components = self.nano_system.all_components
         colors = {
-            'nano_bridge': ['red', 'gold', 'blue'],
+            'nano_bridge': ['blue', 'blue' , 'blue'],
             'oxide': ['darkgreen'] * len(components['oxide']),
             'substrate': ['gray'],
             'air': ['lightblue'],
@@ -24,11 +24,11 @@ class NanoSystemVisualizer:
         }
         
         names = {
-            'nano_bridge': ['Left Bridge', 'Center Bridge', 'Right Bridge'],
+            'nano_bridge': ['Nano Bridge'] * len(components['nano_bridge']),
             'oxide': ['Oxide'] * len(components['oxide']),
             'substrate': ['Substrate'],
-            'air': ['Air Environment'],
-            'gate': ['Gate Electrode'] * len(components['gate'])
+            'air': ['Air'],
+            'gate': ['Gate'] * len(components['gate'])
         }
         
         # Конвертируем каждый компонент
@@ -75,9 +75,25 @@ class NanoSystemVisualizer:
         
         plotter = pv.Plotter()
         
+        # Словарь для отслеживания, какие типы уже добавлены в легенду
+        added_to_legend = {
+            'nano_bridge': False,
+            'oxide': False, 
+            'substrate': False,
+            'air': False,
+            'gate': False
+        }
+        
         for obj in self.pyvista_objects:
-            opacity = 0.3 if obj['type'] == 'air' else 0.8
+            opacity = 0.3 if obj['type'] == 'air' else 0.8 if obj['type'] == 'oxide' else 1.0
             show_edges = obj['type'] != 'air'
+            
+            # Добавляем в легенду только если этот тип еще не был добавлен
+            if obj['type'] in added_to_legend and not added_to_legend[obj['type']]:
+                label = obj['name']
+                added_to_legend[obj['type']] = True
+            else:
+                label = None  # Не показывать в легенде
             
             plotter.add_mesh(obj['mesh'], 
                            color=obj['color'], 
@@ -85,9 +101,8 @@ class NanoSystemVisualizer:
                            edge_color='black' if show_edges else None,
                            line_width=1,
                            show_edges=show_edges,
-                           label=obj['name'])
+                           label=label)
         
         plotter.add_legend()
         plotter.add_axes()
-        plotter.add_title("Полная система: Наномостик + Подложка + Воздух + Электрод")
         plotter.show()

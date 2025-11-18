@@ -7,7 +7,7 @@ from lib.model import CompleteNanoSystem
 from solver import ElectricFieldSolver
 
 def main():
-    config = ConfigManager.load_config("conf/config.yaml")
+    config = ConfigManager.load_config("/home/latys/Diplom/diplom/conf/config.yaml")
     nano_system = CompleteNanoSystem(config)
     nano_system.create_complete_system()
 
